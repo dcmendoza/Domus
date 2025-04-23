@@ -1,9 +1,28 @@
 """Modulos de serializadores para la API REST"""
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Tower, Apartment, Facility, ParkingSpot, ShiftAssignment, LeaveRequest
+from .models import Tower, Apartment, Facility, ParkingSpot, ShiftAssignment, LeaveRequest, Reservation
 
 User = get_user_model()
+
+class ReservationSerializer(serializers.ModelSerializer):
+    facility_name = serializers.CharField(source='facility.name', read_only=True)
+    user_name = serializers.CharField(source='user.nombre_completo', read_only=True)
+
+    class Meta:
+        model = Reservation
+        fields = [
+            'id', 'facility', 'facility_name',
+            'user', 'user_name',
+            'start_datetime', 'end_datetime',
+            'status', 'created_at'
+        ]
+        read_only_fields = ['status', 'created_at']
+
+    def validate(self, data):
+        instance = Reservation(**data)
+        instance.clean()
+        return data
 
 class TowerSerializer(serializers.ModelSerializer):
     """

@@ -5,15 +5,57 @@ from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
-from .models import Tower, Apartment, Facility, ParkingSpot, ShiftAssignment, LeaveRequest
+from .models import Tower, Apartment, Facility, ParkingSpot, ShiftAssignment, LeaveRequest, Reservation
 from .serializers import (
     TowerSerializer, ApartmentSerializer, FacilitySerializer,
-    ParkingSpotSerializer, ShiftAssignmentSerializer, LeaveRequestSerializer, UserSerializer
+    ParkingSpotSerializer, ShiftAssignmentSerializer, LeaveRequestSerializer, UserSerializer, ReservationSerializer
     )
 from .utils import send_credentials_email
 
 # Create your views here.
 User = get_user_model()
+
+class ReservationViewSet(viewsets.ModelViewSet):
+    serializer_class = ReservationSerializer
+    filter_backends = [filters.OrderingFilter, filters.SearchFilter]
+    ordering_fields = ['start_datetime']
+    search_fields = ['facility__name', 'user__nombre_completo']
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == 'admin':
+            return Reservation.objects.all()
+        return Reservation.objects.filter(user=user)
+
+    def perform_create(self, serializer):
+        instance = serializer.save(user=self.request.user)
+        # notificar al admin
+        send_mail(
+            'Nueva solicitud de reserva',
+            f"Usuario {instance.user.get_full_name()} solicita reserva de {instance.facility.name} "
+            f"de {instance.start_datetime} a {instance.end_datetime}.",
+            'no-reply@domus.com',
+            [admin.email for admin in User.objects.filter(role='admin')],
+            fail_silently=True
+        )
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
+    def review(self, request, pk=None):
+        reservation = self.get_object()
+        decision = request.data.get('decision')  # 'aprobada' o 'rechazada'
+        reservation.status = decision
+        reservation.save()
+        # notificar al usuario
+        subject = 'Reserva ' + ('aprobada' if decision=='aprobada' else 'rechazada')
+        send_mail(
+            subject,
+            f"Tu reserva de {reservation.facility.name} del {reservation.start_datetime} "
+            f"al {reservation.end_datetime} ha sido {decision}.",
+            'no-reply@domus.com',
+            [reservation.user.email],
+            fail_silently=True
+        )
+        return Response({'status': reservation.status})
 
 class TowerViewSet(viewsets.ModelViewSet):
     """

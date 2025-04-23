@@ -107,9 +107,6 @@ class ShiftAssignment(models.Model):
             raise ValidationError("El empleado ya tiene un turno asignado en este horario.")
         if self.start_datetime >= self.end_datetime:
             raise ValidationError('La fecha de inicio debe ser anterior a la fecha de fin.')
-        # validar rol y área
-        if self.employee.role != User.EMPLEADO or self.area not in dict(self.AREA_CHOICES):
-            raise ValidationError('Solo empleados de aseo o seguridad pueden tener turnos.')
         # ubicación exclusiva
         if bool(self.tower) == bool(self.facility):
             raise ValidationError('Especifique torre o instalación, no ambos ni ninguno.')
@@ -161,7 +158,7 @@ class LeaveRequest(models.Model):
     reviewed_at = models.DateTimeField(null=True, blank=True)
 
     def clean(self):
-        if self.start_date >= self.end:
+        if self.start_date >= self.end_date:
             raise ValidationError('Fecha inicio posterior a fecha fin.')
 
     def approve(self, reviewer):
@@ -197,6 +194,46 @@ class LeaveRequest(models.Model):
 
     def __str__(self):
         return f"{self.employee.email} - {self.type} ({self.status})"
+
+class Reservation(models.Model):
+    STATUS_CHOICES = (
+        ('pendiente', 'Pendiente'),
+        ('aprobada', 'Aprobada'),
+        ('rechazada', 'Rechazada'),
+    )
+    facility = models.ForeignKey(
+        Facility,
+        on_delete=models.CASCADE,
+        related_name='reservations'
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='reservations'
+    )
+    start_datetime = models.DateTimeField()
+    end_datetime = models.DateTimeField()
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='pendiente'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.start_datetime >= self.end_datetime:
+            raise ValidationError("La fecha de inicio debe ser anterior a la fecha de fin.")
+        overlapping = Reservation.objects.filter(
+            facility=self.facility,
+            start_datetime__lt=self.end_datetime,
+            end_datetime__gt=self.start_datetime
+        ).exclude(id=self.id)
+        if overlapping.exists():
+            raise ValidationError("Ya existe una reserva para este rango horario.")
+
+    def __str__(self):
+        return f"Reserva {self.facility.name} por {self.user.get_full_name()} ({self.status})"
 
 class CustomUser(AbstractUser):
     """
