@@ -3,9 +3,8 @@ flutter_front/build/
 flutter_front/.dart_tool/
 flutter_front/.packages
 
-# Ignorar archivos de bases de datos y logs
-odoo_back/odoo-db-data/
-odoo_back/odoo-web-data/
+# Ignorar archivos de Django
+back_django/.env
 
 # Ignorar configuración de usuario en VS Code
 .vscode/
