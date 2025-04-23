@@ -1,9 +1,10 @@
+"""" Modulos de rutas de la API """
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from api import views
+from .views import UserViewSet
 
 router = DefaultRouter()
-#router.register(r'propiedades', views.PropiedadViewSet)
+router.register(r'users', UserViewSet, basename='user')
 
 urlpatterns = [
   path('api/', include(router.urls)),
