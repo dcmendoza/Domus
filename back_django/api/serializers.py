@@ -32,6 +32,11 @@ class UserSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         password = validated_data.pop('password')
+        
+        if 'username' not in validated_data or not validated_data['username']:
+            email = validated_data.get('email')
+            validated_data['username'] = email.split('@')[0]
+        
         user = User(**validated_data)
         user.set_password(password)
         # Guardamos temporalmente la contraseña para el envío de correo
