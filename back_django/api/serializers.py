@@ -1,15 +1,24 @@
 """Modulos de serializadores para la API REST"""
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Tower, Apartment, Facility, ParkingSpot, ShiftAssignment, LeaveRequest, Reservation
+from .models import (Tower, Apartment, Facility, ParkingSpot,
+                    ShiftAssignment, LeaveRequest, Reservation)
 
-User = get_user_model()
+CustomUser = get_user_model()
 
 class ReservationSerializer(serializers.ModelSerializer):
+    """
+    Serializador para la clase Reservation.
+    Permite la creación y actualización de reservas en el sistema.
+    """
     facility_name = serializers.CharField(source='facility.name', read_only=True)
     user_name = serializers.CharField(source='user.nombre_completo', read_only=True)
 
     class Meta:
+        """
+        Clase Meta para el serializador ReservationSerializer
+        Define los campos a serializar y las restricciones de acceso.
+        """
         model = Reservation
         fields = [
             'id', 'facility', 'facility_name',
@@ -19,10 +28,10 @@ class ReservationSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['status', 'created_at']
 
-    def validate(self, data):
-        instance = Reservation(**data)
+    def validate(self, attrs):
+        instance = Reservation(**attrs)
         instance.clean()
-        return data
+        return attrs
 
 class TowerSerializer(serializers.ModelSerializer):
     """
@@ -124,39 +133,51 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     """
     Serializer para la creación y listado de usuarios.
-    Solo administradores pueden crear usuarios asignando contraseña.
     """
     password = serializers.CharField(write_only=True, required=True)
+    registration_status = serializers.CharField(read_only=True)
 
     class Meta:
         """
         Clase Meta para el serializador UserSerializer.
         Define los campos a serializar y las restricciones de acceso.
         """
-        model = User
-        fields = ['id', 'email', 'nombre_completo', 'telefono', 'role', 'subrole', 'password']
-        read_only_fields = ['id']
+        model = CustomUser
+        fields = [
+            'id', 'email', 'nombre_completo', 'telefono',
+            'role', 'subrole', 'password', 'registration_status'
+        ]
+        read_only_fields = ['id', 'registration_status']
 
     def validate(self, attrs):
-        # subrole solo si role == EMPLEADO
+        # 1) subrole solo si role == EMPLEADO
         role = attrs.get('role')
         sub = attrs.get('subrole')
-        if role != User.EMPLEADO and sub:
+        if role != CustomUser.EMPLEADO and sub:
             raise serializers.ValidationError(
                 {'subrole': 'Solo los empleados pueden tener un subrol.'}
             )
+
+        # 2) Self-signup: solo propietario o empleado-portería, nunca admin
+        request = self.context.get('request')
+        if request and not request.user.is_staff:
+            if role == CustomUser.ADMIN:
+                raise serializers.ValidationError(
+                    {'role': 'No puedes registrarte como administrador.'}
+                )
+            if role == CustomUser.EMPLEADO and sub != CustomUser.PORTERIA:
+                raise serializers.ValidationError(
+                    {'subrole': 'Solo portería puede auto-registrarse como empleado.'}
+                )
         return attrs
 
     def create(self, validated_data):
+        # 1) Extraer y cifrar contraseña
         password = validated_data.pop('password')
-
-        if 'username' not in validated_data or not validated_data['username']:
-            email = validated_data.get('email')
-            validated_data['username'] = email.split('@')[0]
-
-        user = User(**validated_data)
+        # 2) Crear usuario inactivo y pendiente
+        user = CustomUser(**validated_data)
         user.set_password(password)
-        # Guardamos temporalmente la contraseña para el envío de correo
-        user.raw_password = password  # Use a public attribute instead of a protected one
+        user.is_active = False
+        user.registration_status = CustomUser.PENDING
         user.save()
         return user

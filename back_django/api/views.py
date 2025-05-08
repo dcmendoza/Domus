@@ -1,21 +1,27 @@
 """" Modulos para las vistas de la API """
 from rest_framework import viewsets, filters, status
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from rest_framework.permissions import IsAdminUser, IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
-from .models import Tower, Apartment, Facility, ParkingSpot, ShiftAssignment, LeaveRequest, Reservation
-from .serializers import (
-    TowerSerializer, ApartmentSerializer, FacilitySerializer,
-    ParkingSpotSerializer, ShiftAssignmentSerializer, LeaveRequestSerializer, UserSerializer, ReservationSerializer
-    )
-from .utils import send_credentials_email
+from .models import (Tower, Apartment, Facility, ParkingSpot,
+                    ShiftAssignment, LeaveRequest, Reservation)
+from .serializers import (TowerSerializer, ApartmentSerializer, FacilitySerializer,
+                        ParkingSpotSerializer, ShiftAssignmentSerializer, LeaveRequestSerializer,
+                        UserSerializer, ReservationSerializer)
+from .utils import send_approval_email, send_rejection_email
+
+# Constants
+NO_REPLY_EMAIL = 'no-reply@domus.com'
 
 # Create your views here.
-User = get_user_model()
+CustomUser = get_user_model()
 
 class ReservationViewSet(viewsets.ModelViewSet):
+    """
+    Vista para gestionar reservas.
+    """
     serializer_class = ReservationSerializer
     filter_backends = [filters.OrderingFilter, filters.SearchFilter]
     ordering_fields = ['start_datetime']
@@ -31,16 +37,19 @@ class ReservationViewSet(viewsets.ModelViewSet):
         instance = serializer.save(user=self.request.user)
         # notificar al admin
         send_mail(
-            'Nueva solicitud de reserva',
+            'Nueva Solicitud de Reserva',
             f"Usuario {instance.user.get_full_name()} solicita reserva de {instance.facility.name} "
             f"de {instance.start_datetime} a {instance.end_datetime}.",
-            'no-reply@domus.com',
-            [admin.email for admin in User.objects.filter(role='admin')],
+            NO_REPLY_EMAIL,
+            [admin.email for admin in CustomUser.objects.filter(role='admin')],
             fail_silently=True
         )
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
-    def review(self, request, pk=None):
+    def review(self, request):
+        """
+        Revisa una reserva. Solo accesible por administradores.
+        """
         reservation = self.get_object()
         decision = request.data.get('decision')  # 'aprobada' o 'rechazada'
         reservation.status = decision
@@ -51,7 +60,7 @@ class ReservationViewSet(viewsets.ModelViewSet):
             subject,
             f"Tu reserva de {reservation.facility.name} del {reservation.start_datetime} "
             f"al {reservation.end_datetime} ha sido {decision}.",
-            'no-reply@domus.com',
+            NO_REPLY_EMAIL,
             [reservation.user.email],
             fail_silently=True
         )
@@ -102,7 +111,6 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
     search_fields = ['employee__nombre_completo', 'area']
 
     def get_queryset(self):
-        user = self.request.user
         qs = ShiftAssignment.objects.all()
         # Filtros por area, fechas y empleado
         area = self.request.query_params.get('area')
@@ -122,9 +130,10 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
         instance = serializer.save()
         send_mail(
             'Nuevo turno asignado',
-            f"Se te ha asignado un nuevo turno del {instance.start_datetime} al {instance.end_datetime} "
-            f"en el área de {instance.area} en {'Torre ' + instance.tower.name if instance.tower else instance.facility.name}.",
-            'no-reply@domus.com',
+            f"Se ha asignado un nuevo turno {instance.start_datetime} al {instance.end_datetime} "
+            f"en el área de {instance.area} en "
+            f"{'Torre ' + instance.tower.name if instance.tower else instance.facility.name}.",
+            NO_REPLY_EMAIL,
             [instance.employee.email],
             fail_silently=True
         )
@@ -142,13 +151,16 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
             qs = LeaveRequest.objects.all()
         else:
             qs = LeaveRequest.objects.filter(employee=user)
-        status = self.request.query_params.get('status')
-        if status in ['pendiente', 'aprobada', 'rechazada']:
-            qs = qs.filter(status=status)
+        status_filter = self.request.query_params.get('status')
+        if status_filter in ['pendiente', 'aprobada', 'rechazada']:
+            qs = qs.filter(status=status_filter)
         return qs
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
-    def review(self, request, pk=None):
+    def review(self, request):
+        """
+        Revisa una solicitud de licencia.
+        """
         leave = self.get_object()
         decision = request.data.get('decision')
         reviewer = request.user
@@ -164,17 +176,37 @@ class UserViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestionar usuarios. Solo accesible por administradores.
     """
-    queryset = User.objects.all()
+    queryset = CustomUser.objects.all().order_by('id')
     serializer_class = UserSerializer
-    permission_classes = [IsAdminUser]
 
-    # Opcional: override de create para enviar correo con credenciales
-    def perform_create(self, serializer):
-        user = serializer.save()
-        send_credentials_email(user)
+    def get_permissions(self):
+        if self.action == 'create':
+            return [AllowAny()]
+        if self.action in ('approve', 'reject'):
+            return [IsAdminUser()]
+        if self.action == 'me':
+            return [IsAuthenticated()]
+        # list, retrieve, update, destroy → admin
+        return [IsAdminUser()]
 
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['get'], url_path='me')
     def me(self, request):
-        """Retorna datos del usuario autenticado."""
+        """Devuelve datos del propio usuario."""
         serializer = self.get_serializer(request.user)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], url_path='approve')
+    def approve(self):
+        """Admin aprueba registro pendiente."""
+        user = self.get_object()
+        user.approve()
+        send_approval_email(user)
+        return Response({'status': 'approved'}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='reject')
+    def reject(self):
+        """Admin rechaza registro pendiente."""
+        user = self.get_object()
+        user.reject()
+        send_rejection_email(user)
+        return Response({'status': 'rejected'}, status=status.HTTP_200_OK)
