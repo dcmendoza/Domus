@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'create_user_screen.dart';
+
 
 class AdminHomeScreen extends StatelessWidget {
   const AdminHomeScreen({super.key});
@@ -17,15 +19,15 @@ class AdminHomeScreen extends StatelessWidget {
         elevation: 0,
         actions: [
           IconButton(
-            onPressed: () {},
+            onPressed: () {}, // Notificaciones
             icon: const Icon(Icons.notifications_none, color: Colors.teal),
           ),
           IconButton(
-            onPressed: () {},
+            onPressed: () {}, // Perfil (aún no implementado)
             icon: const Icon(Icons.account_circle, color: Colors.teal),
           ),
           IconButton(
-            onPressed: () => _logout(context),
+            onPressed: () => _logout(context), // Cerrar sesión
             icon: const Icon(Icons.logout, color: Colors.teal),
           ),
         ],
@@ -65,8 +67,15 @@ class AdminHomeScreen extends StatelessWidget {
         unselectedItemColor: Colors.grey,
         currentIndex: 0,
         onTap: (index) {
-          // Aquí puedes definir qué hacer al cambiar de sección
-        },
+          if (index == 6) {
+            // Cuando toca el ícono de tres puntos
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const CreateUserScreen()),
+            );
+          }// Puedes agregar más navegación por index si luego lo necesitas
+},
+
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: ''),
           BottomNavigationBarItem(icon: Icon(Icons.group), label: ''),
