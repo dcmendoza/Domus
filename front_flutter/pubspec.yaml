@@ -28,6 +28,9 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
+  http: ^0.13.6
+  flutter_secure_storage: ^9.0.0
+
   flutter:
     sdk: flutter
 
@@ -36,6 +39,7 @@ dependencies:
   cupertino_icons: ^1.0.8
 
 dev_dependencies:
+  flutter_launcher_icons: ^0.13.1
   flutter_test:
     sdk: flutter
 
@@ -45,6 +49,11 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "lib/assets/images/domus_logo.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -56,6 +65,13 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+
+  assets:
+    - lib/assets/images/domus_logo.png
+    - lib/assets/images/admin_avatar.png
+    - lib/assets/images/bar_chart.png
+    - lib/assets/images/pie_chart.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:
