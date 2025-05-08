@@ -1,5 +1,6 @@
 """Modulo de modelos para la aplicación de usuarios de Django."""
 from django.contrib.auth.models import AbstractUser
+from django.utils.translation import gettext_lazy as _
 from django.db import models
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -113,7 +114,7 @@ class ShiftAssignment(models.Model):
 
     def __str__(self):
         loc = self.tower or self.facility
-        return f"{self.employee} - {self.area} from {self.start_datetime} to {self.end_datetime} @ {loc}"
+        return f"{self.employee} ({self.area}) {self.start_datetime} - {self.end_datetime} @ {loc}"
 
 class LeaveRequest(models.Model):
     """
@@ -162,6 +163,9 @@ class LeaveRequest(models.Model):
             raise ValidationError('Fecha inicio posterior a fecha fin.')
 
     def approve(self, reviewer):
+        """
+        Aprueba la solicitud de permiso.
+        """
         self.status = 'aprobada'
         self.reviewed_by = reviewer
         self.reviewed_at = timezone.now()
@@ -175,12 +179,15 @@ class LeaveRequest(models.Model):
 
         send_mail(
             subject="Solicitud de permiso aprobada",
-            message=f"Tu solicitud fue aprobada para el periodo {self.start_date} a {self.end_date}.",
+            message=f"Tu solicitud fue aprobada desde {self.start_date} a {self.end_date}.",
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[self.employee.email]
         )
 
     def reject(self, reviewer):
+        """
+        Rechaza la solicitud de permiso.
+        """
         self.status = 'rechazada'
         self.reviewed_by = reviewer
         self.save()
@@ -196,6 +203,10 @@ class LeaveRequest(models.Model):
         return f"{self.employee.email} - {self.type} ({self.status})"
 
 class Reservation(models.Model):
+    """
+    Modelo para reservas de instalaciones.
+    Cada reserva tiene una instalación, usuario, fechas de inicio y fin
+    """
     STATUS_CHOICES = (
         ('pendiente', 'Pendiente'),
         ('aprobada', 'Aprobada'),
@@ -221,7 +232,6 @@ class Reservation(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def clean(self):
-        from django.core.exceptions import ValidationError
         if self.start_datetime >= self.end_datetime:
             raise ValidationError("La fecha de inicio debe ser anterior a la fecha de fin.")
         overlapping = Reservation.objects.filter(
@@ -251,33 +261,67 @@ class CustomUser(AbstractUser):
     EMPLEADO = 'empleado'
     PROPIETARIO = 'propietario'
     ROLE_CHOICES = [
-        (ADMIN, 'Administrador'),
-        (EMPLEADO, 'Empleado'),
-        (PROPIETARIO, 'Propietario'),
+        (ADMIN, _('Administrador')),
+        (EMPLEADO, _('Empleado')),
+        (PROPIETARIO, _('Propietario')),
     ]
-    role = models.CharField('Rol', max_length=20, choices=ROLE_CHOICES)
+    role = models.CharField(_('Rol'), max_length=20, choices=ROLE_CHOICES)
 
-    # Sub-roles solo aplican si es EMPLEADO
+    # Subroles (solo empleados)
     LIMPIEZA = 'limpieza'
     SEGURIDAD = 'seguridad'
     MANTENIMIENTO = 'mantenimiento'
+    PORTERIA = 'porteria'  # añadimos el subrol de portería
     SUBROLE_CHOICES = [
-        (LIMPIEZA, 'Limpieza'),
-        (SEGURIDAD, 'Seguridad'),
-        (MANTENIMIENTO, 'Mantenimiento'),
+        (LIMPIEZA, _('Limpieza')),
+        (SEGURIDAD, _('Seguridad')),
+        (MANTENIMIENTO, _('Mantenimiento')),
+        (PORTERIA, _('Portería')),
     ]
     subrole = models.CharField(
-        'Subrol (solo empleados)',
+        _('Subrol (solo empleados)'),
         max_length=20,
         choices=SUBROLE_CHOICES,
-        blank=True,
-        null=True,
-        help_text='Especifica el subrol si el usuario es un empleado.'
+        blank=True, null=True,
+        help_text=_('Especifica el subrol si el usuario es un empleado.')
     )
 
-    # Configuración de autenticación
+    # Login con email
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['username', 'nombre_completo', 'telefono', 'role']
 
     def __str__(self):
         return f"{self.nombre_completo} <{self.email}>"
+
+    # —––––––––––– Estado de registro
+    PENDING = 'pending'
+    APPROVED = 'approved'
+    REJECTED = 'rejected'
+    REG_STATUS_CHOICES = [
+        (PENDING, _('Pendiente')),
+        (APPROVED, _('Aprobado')),
+        (REJECTED, _('Rechazado')),
+    ]
+    registration_status = models.CharField(
+        _('Estado de registro'),
+        max_length=20,
+        choices=REG_STATUS_CHOICES,
+        default=PENDING,
+        db_index=True,
+    )
+
+    def approve(self):
+        """
+        Aprobación del registro del usuario.
+        """
+        self.registration_status = CustomUser.APPROVED
+        self.is_active = True
+        self.save(update_fields=['registration_status', 'is_active'])
+
+    def reject(self):
+        """
+        Rechaza el registro del usuario.
+        """
+        self.registration_status = CustomUser.REJECTED
+        # mantenemos is_active=False
+        self.save(update_fields=['registration_status'])
