@@ -251,9 +251,19 @@ class CustomUser(AbstractUser):
     Extiende AbstractUser e incluye campos para nombre completo, teléfono,
     verificación de email, aprobación de admin y roles.
     """
-    # El campo 'username' se mantiene internamente, pero usaremos email para login
+    # Campos de usuario
+    username = models.CharField(
+        'Nombre de Usuario',
+        max_length=150,
+        unique=True,
+        help_text=_('Nombre de usuario único.'),
+        error_messages={
+            'unique': _("Ya existe un usuario con este nombre."),
+        },
+    )
+    first_name = models.CharField('Nombre', max_length=30)
+    last_name = models.CharField('Apellido', max_length=30)
     email = models.EmailField('Correo Electrónico', unique=True)
-    nombre_completo = models.CharField('Nombre Completo', max_length=150)
     telefono = models.CharField('Número de Teléfono', max_length=20)
 
     # Roles de usuario
@@ -271,12 +281,10 @@ class CustomUser(AbstractUser):
     LIMPIEZA = 'limpieza'
     SEGURIDAD = 'seguridad'
     MANTENIMIENTO = 'mantenimiento'
-    PORTERIA = 'porteria'  # añadimos el subrol de portería
     SUBROLE_CHOICES = [
         (LIMPIEZA, _('Limpieza')),
         (SEGURIDAD, _('Seguridad')),
         (MANTENIMIENTO, _('Mantenimiento')),
-        (PORTERIA, _('Portería')),
     ]
     subrole = models.CharField(
         _('Subrol (solo empleados)'),
@@ -286,42 +294,67 @@ class CustomUser(AbstractUser):
         help_text=_('Especifica el subrol si el usuario es un empleado.')
     )
 
-    # Login con email
-    USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = ['username', 'nombre_completo', 'telefono', 'role']
-
-    def __str__(self):
-        return f"{self.nombre_completo} <{self.email}>"
-
-    # —––––––––––– Estado de registro
-    PENDING = 'pending'
-    APPROVED = 'approved'
-    REJECTED = 'rejected'
+    # Estado de registro
+    PENDIENTE = 'pendiente'
+    APROBADO = 'aprobado'
+    RECHAZADO = 'rechazado'
     REG_STATUS_CHOICES = [
-        (PENDING, _('Pendiente')),
-        (APPROVED, _('Aprobado')),
-        (REJECTED, _('Rechazado')),
+        (PENDIENTE, _('Pendiente')),
+        (APROBADO, _('Aprobado')),
+        (RECHAZADO, _('Rechazado')),
     ]
     registration_status = models.CharField(
         _('Estado de registro'),
         max_length=20,
         choices=REG_STATUS_CHOICES,
-        default=PENDING,
+        default=PENDIENTE,
         db_index=True,
     )
+
+    is_active = models.BooleanField(_('Active user'),
+                                    default=False,
+                                    help_text=_('Designa si este usuario puede autenticarse.'))
+
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = ['username', 'first_name', 'last_name', 'telefono', 'role']
+
+    def __str__(self):
+        # get_full_name() devuelve "first_name last_name"
+        return f"{self.get_full_name()} <{self.email}>"
 
     def approve(self):
         """
         Aprobación del registro del usuario.
         """
-        self.registration_status = CustomUser.APPROVED
+        self.registration_status = CustomUser.APROBADO
         self.is_active = True
         self.save(update_fields=['registration_status', 'is_active'])
+        # Enviar correo de bienvenida
+        send_mail(
+            subject=_('Bienvenido a Domus'),
+            message=_(
+                '¡Hola %(name)s!\n\n'
+                'Tu solicitud de registro ha sido aprobada y ya puedes iniciar sesión en Domus.'
+                ) % {'name': self.get_full_name()},
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[self.email]
+        )
 
     def reject(self):
         """
         Rechaza el registro del usuario.
         """
-        self.registration_status = CustomUser.REJECTED
+        self.registration_status = CustomUser.RECHAZADO
         # mantenemos is_active=False
         self.save(update_fields=['registration_status'])
+        # Enviar correo de rechazo
+        send_mail(
+            subject=_('Lo sentimos'),
+            message=_(
+                'Hola %(name)s,\n\n'
+                'Tu solicitud de registro ha sido rechazada. Si crees que esto es un error, '
+                'por favor contacta al administrador.'
+                ) % {'name': self.get_full_name()},
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[self.email]
+        )

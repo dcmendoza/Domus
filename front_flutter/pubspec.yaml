@@ -30,6 +30,7 @@ environment:
 dependencies:
   http: ^0.13.6
   flutter_secure_storage: ^9.0.0
+  shared_preferences: ^2.1.0
 
   flutter:
     sdk: flutter
@@ -37,9 +38,11 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
+  intl: ^0.20.2
 
 dev_dependencies:
   flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.2.18
   flutter_test:
     sdk: flutter
 
@@ -55,6 +58,12 @@ flutter_launcher_icons:
   ios: true
   image_path: "lib/assets/images/domus_logo.png"
 
+flutter_native_splash:
+  image: lib/assets/images/domus_logo.png
+  color: "#ffffff"
+  android: true
+  ios: true
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
@@ -69,9 +78,15 @@ flutter:
 
   assets:
     - lib/assets/images/domus_logo.png
-    - lib/assets/images/admin_avatar.png
-    - lib/assets/images/bar_chart.png
-    - lib/assets/images/pie_chart.png
+    - lib/assets/images/avatar_image.png
+    - lib/assets/images/bar_chart_image.png
+    - lib/assets/images/pie_chart_image.png
+    - lib/assets/images/login_image.png
+    - lib/assets/images/register_image.png
+    - lib/assets/images/banner_image.png
+    - lib/assets/images/apartment_image.png
+    - lib/assets/images/checklist_image.png
+    - lib/assets/images/employees_image.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:
