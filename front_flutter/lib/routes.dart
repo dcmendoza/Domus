@@ -20,6 +20,12 @@ class Routes {
   /// Pantalla de reservas.
   static const reserves = '/reserves';
 
+  /// Pantalla para crear nueva reserva.
+  static const newReservation = '/reserves/new';
+
+  /// Pantalla de detalle de reserva.
+  static const reservationDetails = '/reserves/details';
+
   /// Pantalla de chat.
   static const chat     = '/chat';
 
@@ -37,5 +43,18 @@ class Routes {
 
   static const shiftAssign = '/shift/assign';
 
-  static const leaves = '/leaves';
+  /// Pantalla de listado de solicitudes
+  static const leaves         = '/leaves';
+
+  /// Pantalla de nuevo request
+  static const leaveRequest   = '/leaves/request';
+
+  /// Pantalla de detalle
+  static const leaveDetails   = '/leaves/details';
+
+  /// Pantalla de edición
+  static const leaveEdit      = '/leaves/edit';
+
+  /// Pantalla de borrado (confirmación)
+  static const leaveDelete    = '/leaves/delete';
 }

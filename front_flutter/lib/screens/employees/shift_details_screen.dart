@@ -8,7 +8,7 @@ import '../../routes.dart';
 class ShiftDetailsScreen extends StatelessWidget {
   static const routeName = Routes.shiftDetails;
 
-  const ShiftDetailsScreen({Key? key}) : super(key: key);
+  const ShiftDetailsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {

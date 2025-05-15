@@ -32,27 +32,18 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
     setState(() => _loading = true);
     try {
       final profile = await AuthService.getProfile();
-      final allShifts = await ShiftsService.fetchShiftsForDate(_selectedDate);
-
-      // Filtrar sólo los turnos que cubren _selectedDate
-      final filtered = allShifts.where((s) {
-        final start = DateTime.parse(s['start_datetime'] as String);
-        final end   = DateTime.parse(s['end_datetime']   as String);
-        // devolvemos true si selectedDate está entre start y end (inclusive)
-        return !_selectedDate.isBefore(start) && !_selectedDate.isAfter(end);
-      }).toList();
-
-      final ids = filtered.map((s) => s['employee'] as int).toSet().length;
+      final shifts = await ShiftsService.fetchShiftsForDate(_selectedDate);
+      final ids = shifts.map((s) => s['employee'] as int).toSet().length;
       if (!mounted) return;
       setState(() {
-        _role          = profile['role'] as String;
-        _shifts        = filtered;
+        _role = profile['role'] as String;
+        _shifts = shifts;
         _employeeCount = ids;
       });
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(e.toString())));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -65,7 +56,6 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
   }
 
   Widget _buildDateSlider() {
-    // 7 días centrados en _selectedDate
     final days = List.generate(7, (i) => _selectedDate.add(Duration(days: i - 3)));
     return SizedBox(
       height: 70,
@@ -75,9 +65,9 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (ctx, i) {
           final d = days[i];
-          final sel = d.year==_selectedDate.year &&
-                      d.month==_selectedDate.month &&
-                      d.day==_selectedDate.day;
+          final sel = d.year == _selectedDate.year &&
+                      d.month == _selectedDate.month &&
+                      d.day == _selectedDate.day;
           return GestureDetector(
             onTap: () => _onDateChanged(d),
             child: Container(
@@ -125,12 +115,12 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
     return Column(
       children: sorted.map((s) {
         final start = DateTime.parse(s['start_datetime']);
-        final end   = DateTime.parse(s['end_datetime']);
-        final name  = s['employee_name'] ?? 'Empleado';
-        final area  = s['area'] as String;
+        final end = DateTime.parse(s['end_datetime']);
+        final name = s['employee_name'] ?? 'Empleado';
+        final area = s['area'] as String;
         final startStr = DateFormat('hh:mm a').format(start);
-        final endStr   = DateFormat('hh:mm a').format(end);
-        final bg       = Colors.green.withAlpha((0.8 * 255).toInt());
+        final endStr = DateFormat('hh:mm a').format(end);
+        final bg = Colors.green.withOpacity(0.8);
 
         return GestureDetector(
           onTap: () => Navigator.pushNamed(
@@ -168,12 +158,8 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'Empleados',
-          style: TextStyle(color: Colors.green),
-        ),
+        title: const Text('Empleados', style: TextStyle(color: Colors.green)),
         iconTheme: const IconThemeData(color: Colors.green),
-        foregroundColor: Colors.green,
         centerTitle: true,
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(48),
@@ -196,16 +182,14 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.calendar_today),
-            onPressed: () =>
-                setState(() => _showCalendar = !_showCalendar),
+            onPressed: () => setState(() => _showCalendar = !_showCalendar),
           ),
           IconButton(
             tooltip: 'Cerrar sesión',
             icon: const Icon(Icons.logout),
             onPressed: () {
               AuthService.logout();
-              Navigator.pushReplacementNamed(
-                  context, Routes.welcome);
+              Navigator.pushReplacementNamed(context, Routes.welcome);
             },
           ),
         ],
@@ -219,36 +203,23 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
                   _showCalendar
                       ? CalendarDatePicker(
                           initialDate: _selectedDate,
-                          firstDate: DateTime.now()
-                              .subtract(const Duration(days: 365)),
-                          lastDate: DateTime.now()
-                              .add(const Duration(days: 365)),
+                          firstDate: DateTime.now().subtract(const Duration(days: 365)),
+                          lastDate: DateTime.now().add(const Duration(days: 365)),
                           onDateChanged: _onDateChanged,
                         )
                       : _buildDateSlider(),
                   const SizedBox(height: 16),
-                  Expanded(
-                    child: SingleChildScrollView(
-                        child: _buildRoutine()),
-                  ),
+                  Expanded(child: SingleChildScrollView(child: _buildRoutine())),
                 ],
               ),
             ),
-      floatingActionButton: _role == 'admin'
-        ? FloatingActionButton(
-            onPressed: () {
-              // Navegar a la pantalla de asignar turno
-              Navigator.pushNamed(context, Routes.shiftAssign, arguments: {
-                'date': _selectedDate,
-              });
-            },
-            tooltip: 'Asignar Turno',
-            backgroundColor: Colors.green,
-            child: const Icon(Icons.add),
-          )
-        : null,
-      bottomNavigationBar:
-          DomusBottomNavBar(role: _role ?? 'empleado'),
+      bottomNavigationBar: DomusBottomNavBar(role: _role ?? 'empleado'),
+      floatingActionButton: (_role == 'admin')
+          ? FloatingActionButton(
+              onPressed: () => Navigator.pushNamed(context, Routes.shiftAssign, arguments: {'date': _selectedDate}),
+              child: const Icon(Icons.add),
+            )
+          : null,
     );
   }
 }

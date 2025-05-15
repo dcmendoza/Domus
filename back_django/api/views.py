@@ -3,6 +3,7 @@ from rest_framework import viewsets, filters, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser, IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from rest_framework.exceptions import PermissionDenied
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django_filters.rest_framework import DjangoFilterBackend
@@ -25,7 +26,7 @@ class ReservationViewSet(viewsets.ModelViewSet):
     serializer_class = ReservationSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [filters.OrderingFilter, filters.SearchFilter]
-    ordering_fields = ['start_datetime']
+    ordering_fields = ['start_datetime', 'created_at']
     search_fields = ['facility__name', 'user__get_full_name']
 
     def get_queryset(self):
@@ -86,10 +87,20 @@ class ApartmentViewSet(viewsets.ModelViewSet):
 class FacilityViewSet(viewsets.ModelViewSet):
     """
     Vista para gestionar instalaciones.
+    - GET (list/retrieve): cualquier usuario autenticado.
+    - POST/PUT/DELETE: solo administradores.
     """
-    queryset = Facility.objects.all()
+    queryset = Facility.objects.all().order_by('name')  # <-- orden fijo
     serializer_class = FacilitySerializer
-    permission_classes = [IsAdminUser]
+    ordering_fields = ['name']
+
+    def get_permissions(self):
+        # admin para mutaciones, auth para lecturas
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            perms = [IsAdminUser]
+        else:
+            perms = [IsAuthenticated]
+        return [p() for p in perms]
 
 class ParkingSpotViewSet(viewsets.ModelViewSet):
     """
@@ -102,30 +113,48 @@ class ParkingSpotViewSet(viewsets.ModelViewSet):
 class ShiftAssignmentViewSet(viewsets.ModelViewSet):
     """
     Vista para gestionar asignaciones de turnos.
-    - Admin: CRUD completo.
-    - Empleado: sólo GET de sus propios turnos.
     """
+    queryset = ShiftAssignment.objects.all()
     serializer_class = ShiftAssignmentSerializer
-    filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
-    filterset_fields = ['area', 'tower', 'facility', 'employee']
+    permission_classes = [IsAdminUser]
+
+    filter_backends = [filters.OrderingFilter, filters.SearchFilter]
     ordering_fields = ['start_datetime', 'area']
-    search_fields = ['employee__first_name', 'employee__last_name', 'area']
+    search_fields = ['employee__email', 'area']
 
     def get_queryset(self):
         user = self.request.user
         qs = ShiftAssignment.objects.all()
-        # Sólo sus propios turnos si no es admin
+        # Si no es admin, sólo sus propios turnos
         if user.role != CustomUser.ADMIN:
             qs = qs.filter(employee=user)
-
-        # Nueva lógica de filtrado por fecha
-        date = self.request.query_params.get('date')  # espera “YYYY-MM-DD”
-        if date:
+        # Filtros opcionales por área, fechas y empleado
+        area = self.request.query_params.get('area')
+        start = self.request.query_params.get('start')
+        end = self.request.query_params.get('end')
+        emp = self.request.query_params.get('employee')
+        if area:
+            qs = qs.filter(area=area)
+        if start and end:
             qs = qs.filter(
-                start_datetime__date__lte=date,
-                end_datetime__date__gte=date
+                start_datetime__date__gte=start,
+                end_datetime__date__lte=end
             )
+        if emp:
+            qs = qs.filter(employee__id=emp)
         return qs
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        # Notificar al empleado por correo
+        send_mail(
+            'Nuevo turno asignado',
+            f"Se ha asignado un nuevo turno de {instance.start_datetime} a {instance.end_datetime} "
+            f"en el área de {instance.area}.",
+            NO_REPLY_EMAIL,
+            [instance.employee.email],
+            fail_silently=True
+        )
 
     def get_permissions(self):
         # Sólo admin crea/modifica/borra
@@ -135,51 +164,66 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
             perms = [IsAuthenticated]
         return [p() for p in perms]
 
-    def perform_create(self, serializer):
-        instance = serializer.save()
-        # notificar al empleado
-        send_mail(
-            'Nuevo turno asignado',
-            f"Turno: {instance.area} desde {instance.start_datetime} hasta {instance.end_datetime}.",
-            NO_REPLY_EMAIL,
-            [instance.employee.email],
-            fail_silently=True
-        )
-
 class LeaveRequestViewSet(viewsets.ModelViewSet):
     """
     Vista para gestionar solicitudes de permisos/incapacidades.
-    - EMPLEADO: GET (list/retrieve) de sus propias solicitudes, POST para crear.
-    - ADMIN: GET (list/retrieve) de todas, POST-reviews para aprobar/rechazar, DELETE/UPDATE si se quiere.
+    - EMPLEADO: GET (list/retrieve) de sus propias solicitudes, POST para crear,
+    PUT/PATCH/DELETE solo sobre sus solicitudes PENDIENTES.
+    - ADMIN: CRUD completo + action 'review' para aprobar/rechazar.
     """
     serializer_class = LeaveRequestSerializer
+    queryset = LeaveRequest.objects.all().order_by('-created_at')
+    ordering = ['-created_at']
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
     filterset_fields = ['status', 'type', 'start_date', 'end_date']
     ordering_fields = ['created_at', 'start_date']
     search_fields = ['employee__first_name', 'employee__last_name', 'type']
 
     def get_queryset(self):
-        user = self.request.user
-        if user.role == 'admin':
-            return LeaveRequest.objects.all()
-        # solo propias si no es admin
-        return LeaveRequest.objects.filter(employee=user)
+        qs = super().get_queryset()
+        if self.request.user.role != CustomUser.ADMIN:
+            qs = qs.filter(employee=self.request.user)
+        return qs
 
     def get_permissions(self):
-        if self.action in ['review']:
-            # aprobar/rechazar → solo admin
+        # review solo admin
+        if self.action == 'review':
             perms = [IsAdminUser]
+        # crear, listar y ver detalles → cualquier autenticado
         elif self.action in ['create', 'list', 'retrieve']:
-            # crear y ver propias → cualquier usuario autenticado
+            perms = [IsAuthenticated]
+        # editar/borrar → cualquier autenticado, chequeo extra en perform_*
+        elif self.action in ['update', 'partial_update', 'destroy']:
             perms = [IsAuthenticated]
         else:
-            # update/partial_update/destroy → solo admin
+            # (p.ej. review está más arriba; actions extra si los tuvieras)
             perms = [IsAdminUser]
         return [p() for p in perms]
 
     def perform_create(self, serializer):
         # al crear, fijar employee = quien hace la petición
         serializer.save(employee=self.request.user)
+
+    def perform_update(self, serializer):
+        leave = self.get_object()
+        user = self.request.user
+        # Si no es admin, sólo puede editar su propia solicitud PENDIENTE
+        if user.role != 'admin':
+            if leave.employee != user:
+                raise PermissionDenied("No puedes editar solicitudes de otro usuario.")
+            if leave.status != LeaveRequest.STATUS_CHOICES[0][0]:  # 'pendiente'
+                raise PermissionDenied("Solo puedes editar solicitudes pendientes.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        user = self.request.user
+        # Si no es admin, sólo puede borrar su propia solicitud PENDIENTE
+        if user.role != 'admin':
+            if instance.employee != user:
+                raise PermissionDenied("No puedes eliminar solicitudes de otro usuario.")
+            if instance.status != LeaveRequest.STATUS_CHOICES[0][0]:  # 'pendiente'
+                raise PermissionDenied("Solo puedes eliminar solicitudes pendientes.")
+        instance.delete()
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
     def review(self, request, pk=None):

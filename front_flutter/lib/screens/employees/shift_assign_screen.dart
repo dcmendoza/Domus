@@ -9,7 +9,7 @@ class ShiftAssignScreen extends StatefulWidget {
   static const routeName = Routes.shiftAssign;
   final DateTime? initialDate;
 
-  const ShiftAssignScreen({Key? key, this.initialDate}) : super(key: key);
+  const ShiftAssignScreen({super.key, this.initialDate});
 
   @override
   State<ShiftAssignScreen> createState() => _ShiftAssignScreenState();

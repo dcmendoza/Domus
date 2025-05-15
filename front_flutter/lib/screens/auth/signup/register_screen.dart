@@ -5,7 +5,7 @@ import 'package:domus/routes.dart';
 
 /// Pantalla de registro de nuevos usuarios.
 /// Permite escoger rol (solo propietario o empleado), subrol si es empleado,
-/// e ingresar email, nombre completo, teléfono y contraseña.
+/// e ingresar email, nombre, apellido, teléfono y contraseña.
 class RegisterScreen extends StatefulWidget {
   static const routeName = Routes.signup;
   const RegisterScreen({super.key});
@@ -17,7 +17,8 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailCtrl = TextEditingController();
-  final _nameCtrl = TextEditingController();
+  final _firstNameCtrl = TextEditingController();
+  final _lastNameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
 
@@ -39,7 +40,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   void dispose() {
     _emailCtrl.dispose();
-    _nameCtrl.dispose();
+    _firstNameCtrl.dispose();
+    _lastNameCtrl.dispose();
     _phoneCtrl.dispose();
     _passwordCtrl.dispose();
     super.dispose();
@@ -52,8 +54,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     try {
       await AuthService.register(
         email: _emailCtrl.text.trim(),
-        firstName: _nameCtrl.text.trim(),
-        lastName: _nameCtrl.text.trim(),
+        firstName: _firstNameCtrl.text.trim(),
+        lastName: _lastNameCtrl.text.trim(),
         telefono: _phoneCtrl.text.trim(),
         password: _passwordCtrl.text.trim(),
         role: _selectedRole!,
@@ -101,7 +103,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             padding: const EdgeInsets.all(24),
             child: Column(
               children: [
-                // Añadimos la imagen de registro al inicio
+                // Imagen de registro
                 Image.asset(
                   'lib/assets/images/register_image.png',
                   height: 200,
@@ -130,15 +132,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Nombre completo
+                      // Primer Nombre
                       TextFormField(
-                        controller: _nameCtrl,
+                        controller: _firstNameCtrl,
                         decoration: const InputDecoration(
-                          labelText: 'Nombre completo',
+                          labelText: 'Nombre',
                           prefixIcon: Icon(Icons.person),
                         ),
                         validator: (v) =>
                             (v == null || v.isEmpty) ? 'Ingresa tu nombre' : null,
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Apellido
+                      TextFormField(
+                        controller: _lastNameCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Apellido',
+                          prefixIcon: Icon(Icons.person_outline),
+                        ),
+                        validator: (v) =>
+                            (v == null || v.isEmpty) ? 'Ingresa tu apellido' : null,
                       ),
                       const SizedBox(height: 16),
 
@@ -215,14 +229,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           onChanged: (v) => setState(() => _selectedSubrole = v),
                           validator: (v) =>
                               (_selectedRole == 'empleado' && v == null)
-                                  ? 'Selecciona un sub-rol'
-                                  : null,
+                                 ? 'Selecciona un sub-rol'
+                                 : null,
                         ),
                       const SizedBox(height: 32),
 
                       // Botón enviar
                       DomusButton(
-                        text: _loading ? 'Enviando...' : 'Enviar Solicitud',
+                        text: _loading? 'Enviando...':'Enviar Solicitud',
                         onPressed: _loading ? () {} : _submit,
                       ),
                     ],

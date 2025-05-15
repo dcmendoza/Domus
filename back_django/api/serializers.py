@@ -27,7 +27,7 @@ class ReservationSerializer(serializers.ModelSerializer):
             'start_datetime', 'end_datetime',
             'status', 'created_at'
         ]
-        read_only_fields = ['status', 'created_at']
+        read_only_fields = ['status', 'created_at', 'user']
 
     def validate(self, attrs):
         instance = Reservation(**attrs)
@@ -128,7 +128,7 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
             'reviewed_by', 'created_at', 'reviewed_at'
         ]
         read_only_fields = [
-            'status', 'reviewed_by', 'created_at', 'reviewed_at'
+            'status', 'reviewed_by', 'created_at', 'reviewed_at', 'employee'
         ]
 
 class UserSerializer(serializers.ModelSerializer):

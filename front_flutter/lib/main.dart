@@ -9,6 +9,14 @@ import 'screens/employees/home_employee_screen.dart';
 import 'screens/employees/shifts_screen.dart';
 import 'screens/employees/shift_details_screen.dart';
 import 'screens/employees/shift_assign_screen.dart';
+import 'screens/employees/leaves_screen.dart';
+import 'screens/employees/leave_request_screen.dart';
+import 'screens/employees/leave_details_screen.dart';
+import 'screens/employees/leave_edit_screen.dart';
+import 'screens/reservations/reserves_screen.dart';
+import 'screens/reservations/new_reservation_screen.dart';
+import 'screens/reservations/reservation_details_screen.dart';
+import 'screens/settings/profile_screen.dart';
 
 /// Claves globales para navegación y SnackBars desde cualquier punto.
 final navigatorKey = GlobalKey<NavigatorState>();
@@ -48,7 +56,14 @@ class DomusApp extends StatelessWidget {
         Routes.shifts:       (_) => const ShiftsScreen(),
         Routes.shiftDetails: (_) => const ShiftDetailsScreen(),
         Routes.shiftAssign: (_) => const ShiftAssignScreen(),
-
+        Routes.leaves:       (_) => const LeavesScreen(),
+        Routes.leaveRequest: (_) => const LeaveRequestScreen(),
+        Routes.leaveDetails: (_) => const LeaveDetailsScreen(),
+        Routes.leaveEdit:    (_) => const LeaveEditScreen(),
+        Routes.reserves:                (_) => const ReservesScreen(),
+        Routes.newReservation:          (_) => const NewReservationScreen(),
+        Routes.reservationDetails:      (_) => const ReservationDetailsScreen(),
+        Routes.profile:      (_) => const ProfileScreen(),
       },
 
       // Tema global
