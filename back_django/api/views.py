@@ -3,14 +3,15 @@ from rest_framework import viewsets, filters, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser, IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from rest_framework.exceptions import PermissionDenied
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
+from django_filters.rest_framework import DjangoFilterBackend
 from .models import (Tower, Apartment, Facility, ParkingSpot,
                     ShiftAssignment, LeaveRequest, Reservation)
 from .serializers import (TowerSerializer, ApartmentSerializer, FacilitySerializer,
                         ParkingSpotSerializer, ShiftAssignmentSerializer, LeaveRequestSerializer,
                         UserSerializer, ReservationSerializer)
-from .utils import send_approval_email, send_rejection_email
 
 # Constants
 NO_REPLY_EMAIL = 'no-reply@domus.com'
@@ -23,19 +24,20 @@ class ReservationViewSet(viewsets.ModelViewSet):
     Vista para gestionar reservas.
     """
     serializer_class = ReservationSerializer
+    permission_classes = [IsAuthenticated]
     filter_backends = [filters.OrderingFilter, filters.SearchFilter]
-    ordering_fields = ['start_datetime']
-    search_fields = ['facility__name', 'user__nombre_completo']
+    ordering_fields = ['start_datetime', 'created_at']
+    search_fields = ['facility__name', 'user__get_full_name']
 
     def get_queryset(self):
         user = self.request.user
-        if user.role == 'admin':
+        if user.role == CustomUser.ADMIN:
             return Reservation.objects.all()
         return Reservation.objects.filter(user=user)
 
     def perform_create(self, serializer):
         instance = serializer.save(user=self.request.user)
-        # notificar al admin
+        # Notificar al admin
         send_mail(
             'Nueva Solicitud de Reserva',
             f"Usuario {instance.user.get_full_name()} solicita reserva de {instance.facility.name} "
@@ -46,7 +48,7 @@ class ReservationViewSet(viewsets.ModelViewSet):
         )
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
-    def review(self, request):
+    def review(self, request, pk=None):
         """
         Revisa una reserva. Solo accesible por administradores.
         """
@@ -85,10 +87,20 @@ class ApartmentViewSet(viewsets.ModelViewSet):
 class FacilityViewSet(viewsets.ModelViewSet):
     """
     Vista para gestionar instalaciones.
+    - GET (list/retrieve): cualquier usuario autenticado.
+    - POST/PUT/DELETE: solo administradores.
     """
-    queryset = Facility.objects.all()
+    queryset = Facility.objects.all().order_by('name')  # <-- orden fijo
     serializer_class = FacilitySerializer
-    permission_classes = [IsAdminUser]
+    ordering_fields = ['name']
+
+    def get_permissions(self):
+        # admin para mutaciones, auth para lecturas
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            perms = [IsAdminUser]
+        else:
+            perms = [IsAuthenticated]
+        return [p() for p in perms]
 
 class ParkingSpotViewSet(viewsets.ModelViewSet):
     """
@@ -108,11 +120,15 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
 
     filter_backends = [filters.OrderingFilter, filters.SearchFilter]
     ordering_fields = ['start_datetime', 'area']
-    search_fields = ['employee__nombre_completo', 'area']
+    search_fields = ['employee__email', 'area']
 
     def get_queryset(self):
+        user = self.request.user
         qs = ShiftAssignment.objects.all()
-        # Filtros por area, fechas y empleado
+        # Si no es admin, sólo sus propios turnos
+        if user.role != CustomUser.ADMIN:
+            qs = qs.filter(employee=user)
+        # Filtros opcionales por área, fechas y empleado
         area = self.request.query_params.get('area')
         start = self.request.query_params.get('start')
         end = self.request.query_params.get('end')
@@ -120,57 +136,113 @@ class ShiftAssignmentViewSet(viewsets.ModelViewSet):
         if area:
             qs = qs.filter(area=area)
         if start and end:
-            qs = qs.filter(start_datetime__date__gte=start,
-                        end_datetime__date__lte=end)
+            qs = qs.filter(
+                start_datetime__date__gte=start,
+                end_datetime__date__lte=end
+            )
         if emp:
-            qs = qs.filter(employee=emp)
+            qs = qs.filter(employee__id=emp)
         return qs
 
     def perform_create(self, serializer):
         instance = serializer.save()
+        # Notificar al empleado por correo
         send_mail(
             'Nuevo turno asignado',
-            f"Se ha asignado un nuevo turno {instance.start_datetime} al {instance.end_datetime} "
-            f"en el área de {instance.area} en "
-            f"{'Torre ' + instance.tower.name if instance.tower else instance.facility.name}.",
+            f"Se ha asignado un nuevo turno de {instance.start_datetime} a {instance.end_datetime} "
+            f"en el área de {instance.area}.",
             NO_REPLY_EMAIL,
             [instance.employee.email],
             fail_silently=True
         )
 
+    def get_permissions(self):
+        # Sólo admin crea/modifica/borra
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            perms = [IsAdminUser]
+        else:
+            perms = [IsAuthenticated]
+        return [p() for p in perms]
+
 class LeaveRequestViewSet(viewsets.ModelViewSet):
     """
-    Vista para gestionar solicitudes de licencia.
+    Vista para gestionar solicitudes de permisos/incapacidades.
+    - EMPLEADO: GET (list/retrieve) de sus propias solicitudes, POST para crear,
+    PUT/PATCH/DELETE solo sobre sus solicitudes PENDIENTES.
+    - ADMIN: CRUD completo + action 'review' para aprobar/rechazar.
     """
     serializer_class = LeaveRequestSerializer
-    permission_classes = [IsAuthenticated]
+    queryset = LeaveRequest.objects.all().order_by('-created_at')
+    ordering = ['-created_at']
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
+    filterset_fields = ['status', 'type', 'start_date', 'end_date']
+    ordering_fields = ['created_at', 'start_date']
+    search_fields = ['employee__first_name', 'employee__last_name', 'type']
 
     def get_queryset(self):
-        user = self.request.user
-        if user.role == 'admin':
-            qs = LeaveRequest.objects.all()
-        else:
-            qs = LeaveRequest.objects.filter(employee=user)
-        status_filter = self.request.query_params.get('status')
-        if status_filter in ['pendiente', 'aprobada', 'rechazada']:
-            qs = qs.filter(status=status_filter)
+        qs = super().get_queryset()
+        if self.request.user.role != CustomUser.ADMIN:
+            qs = qs.filter(employee=self.request.user)
         return qs
 
+    def get_permissions(self):
+        # review solo admin
+        if self.action == 'review':
+            perms = [IsAdminUser]
+        # crear, listar y ver detalles → cualquier autenticado
+        elif self.action in ['create', 'list', 'retrieve']:
+            perms = [IsAuthenticated]
+        # editar/borrar → cualquier autenticado, chequeo extra en perform_*
+        elif self.action in ['update', 'partial_update', 'destroy']:
+            perms = [IsAuthenticated]
+        else:
+            # (p.ej. review está más arriba; actions extra si los tuvieras)
+            perms = [IsAdminUser]
+        return [p() for p in perms]
+
+    def perform_create(self, serializer):
+        # al crear, fijar employee = quien hace la petición
+        serializer.save(employee=self.request.user)
+
+    def perform_update(self, serializer):
+        leave = self.get_object()
+        user = self.request.user
+        # Si no es admin, sólo puede editar su propia solicitud PENDIENTE
+        if user.role != 'admin':
+            if leave.employee != user:
+                raise PermissionDenied("No puedes editar solicitudes de otro usuario.")
+            if leave.status != LeaveRequest.STATUS_CHOICES[0][0]:  # 'pendiente'
+                raise PermissionDenied("Solo puedes editar solicitudes pendientes.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        user = self.request.user
+        # Si no es admin, sólo puede borrar su propia solicitud PENDIENTE
+        if user.role != 'admin':
+            if instance.employee != user:
+                raise PermissionDenied("No puedes eliminar solicitudes de otro usuario.")
+            if instance.status != LeaveRequest.STATUS_CHOICES[0][0]:  # 'pendiente'
+                raise PermissionDenied("Solo puedes eliminar solicitudes pendientes.")
+        instance.delete()
+
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
-    def review(self, request):
+    def review(self, request, pk=None):
         """
-        Revisa una solicitud de licencia.
+        Admin aprueba o rechaza la solicitud.
+        body: { "decision": "aprobada" }  ó  { "decision": "rechazada" }
         """
         leave = self.get_object()
         decision = request.data.get('decision')
-        reviewer = request.user
         if decision == 'aprobada':
-            leave.approve(reviewer)
+            leave.approve(request.user)
         elif decision == 'rechazada':
-            leave.reject(reviewer)
+            leave.reject(request.user)
         else:
-            return Response({'detail': 'Decisión inválida.'}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({'status': leave.status})
+            return Response(
+                {'detail': 'Decision inválida; use "aprobada" o "rechazada".'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return Response({'status': leave.status}, status=status.HTTP_200_OK)
 
 class UserViewSet(viewsets.ModelViewSet):
     """
@@ -178,6 +250,9 @@ class UserViewSet(viewsets.ModelViewSet):
     """
     queryset = CustomUser.objects.all().order_by('id')
     serializer_class = UserSerializer
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
+    filterset_fields = ['role', 'registration_status']
+    search_fields = ['first_name', 'last_name', 'email']
 
     def get_permissions(self):
         if self.action == 'create':
@@ -189,6 +264,27 @@ class UserViewSet(viewsets.ModelViewSet):
         # list, retrieve, update, destroy → admin
         return [IsAdminUser()]
 
+    def perform_create(self, serializer):
+        """
+        Al crearse un usuario (estado PENDIENTE e is_active=False),
+        notificamos por email a todos los administradores.
+        """
+        user = serializer.save()
+        admins = CustomUser.objects.filter(role=CustomUser.ADMIN)
+        send_mail(
+            'Nueva solicitud de registro',
+            f'El usuario {user.get_full_name()} ({user.email}) '
+            f'ha solicitado acceso y está pendiente de aprobación.',
+            NO_REPLY_EMAIL,
+            [a.email for a in admins],
+            fail_silently=True,
+        )
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        return qs
+
+
     @action(detail=False, methods=['get'], url_path='me')
     def me(self, request):
         """Devuelve datos del propio usuario."""
@@ -196,17 +292,15 @@ class UserViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     @action(detail=True, methods=['post'], url_path='approve')
-    def approve(self):
+    def approve(self, request, pk=None):
         """Admin aprueba registro pendiente."""
         user = self.get_object()
         user.approve()
-        send_approval_email(user)
-        return Response({'status': 'approved'}, status=status.HTTP_200_OK)
+        return Response({'registration_status': user.registration_status})
 
     @action(detail=True, methods=['post'], url_path='reject')
     def reject(self):
         """Admin rechaza registro pendiente."""
         user = self.get_object()
         user.reject()
-        send_rejection_email(user)
-        return Response({'status': 'rejected'}, status=status.HTTP_200_OK)
+        return Response({'registration_status': user.registration_status})

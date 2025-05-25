@@ -1,4 +1,5 @@
 """Modulos de serializadores para la API REST"""
+from uuid import uuid4
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models import (Tower, Apartment, Facility, ParkingSpot,
@@ -26,7 +27,7 @@ class ReservationSerializer(serializers.ModelSerializer):
             'start_datetime', 'end_datetime',
             'status', 'created_at'
         ]
-        read_only_fields = ['status', 'created_at']
+        read_only_fields = ['status', 'created_at', 'user']
 
     def validate(self, attrs):
         instance = Reservation(**attrs)
@@ -127,7 +128,7 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
             'reviewed_by', 'created_at', 'reviewed_at'
         ]
         read_only_fields = [
-            'status', 'reviewed_by', 'created_at', 'reviewed_at'
+            'status', 'reviewed_by', 'created_at', 'reviewed_at', 'employee'
         ]
 
 class UserSerializer(serializers.ModelSerializer):
@@ -144,8 +145,15 @@ class UserSerializer(serializers.ModelSerializer):
         """
         model = CustomUser
         fields = [
-            'id', 'email', 'nombre_completo', 'telefono',
-            'role', 'subrole', 'password', 'registration_status'
+            'id',
+            'email', 
+            'first_name',
+            'last_name',
+            'telefono',
+            'role',
+            'subrole',
+            'password',
+            'registration_status'
         ]
         read_only_fields = ['id', 'registration_status']
 
@@ -153,31 +161,44 @@ class UserSerializer(serializers.ModelSerializer):
         # 1) subrole solo si role == EMPLEADO
         role = attrs.get('role')
         sub = attrs.get('subrole')
+        if role == CustomUser.EMPLEADO and not sub:
+            raise serializers.ValidationError({
+                'subrole': 'El subrol es obligatorio para los empleados.'
+            })
         if role != CustomUser.EMPLEADO and sub:
-            raise serializers.ValidationError(
-                {'subrole': 'Solo los empleados pueden tener un subrol.'}
-            )
-
+            raise serializers.ValidationError({
+                'subrole': 'Solo los empleados pueden tener un subrol.'
+            })
         # 2) Self-signup: solo propietario o empleado-portería, nunca admin
         request = self.context.get('request')
-        if request and not request.user.is_staff:
-            if role == CustomUser.ADMIN:
-                raise serializers.ValidationError(
-                    {'role': 'No puedes registrarte como administrador.'}
-                )
-            if role == CustomUser.EMPLEADO and sub != CustomUser.PORTERIA:
-                raise serializers.ValidationError(
-                    {'subrole': 'Solo portería puede auto-registrarse como empleado.'}
-                )
+        is_admin_request = bool(request and getattr(request.user, 'is_staff', False))
+        if not is_admin_request and role == CustomUser.ADMIN:
+            raise serializers.ValidationError({
+                'role': 'No tienes permiso para registrarte como administrador.'
+            })
         return attrs
 
     def create(self, validated_data):
         # 1) Extraer y cifrar contraseña
         password = validated_data.pop('password')
         # 2) Crear usuario inactivo y pendiente
+        email = validated_data['email']
+        validated_data['username'] = email.split('@')[0] + uuid4().hex[:4]
         user = CustomUser(**validated_data)
         user.set_password(password)
         user.is_active = False
-        user.registration_status = CustomUser.PENDING
+        user.registration_status = CustomUser.PENDIENTE
         user.save()
         return user
+
+    def validate_first_name(self, value):
+        """Validar el nombre del usuario"""
+        if not value.strip():
+            raise serializers.ValidationError("El nombre es obligatorio.")
+        return value
+
+    def validate_last_name(self, value):
+        """Validar el apellido del usuario"""
+        if not value.strip():
+            raise serializers.ValidationError("El apellido es obligatorio.")
+        return value
