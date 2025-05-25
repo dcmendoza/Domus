@@ -48,7 +48,7 @@ class ReservationViewSet(viewsets.ModelViewSet):
         )
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
-    def review(self, request):
+    def review(self, request, pk=None):
         """
         Revisa una reserva. Solo accesible por administradores.
         """
@@ -292,7 +292,7 @@ class UserViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     @action(detail=True, methods=['post'], url_path='approve')
-    def approve(self):
+    def approve(self, request, pk=None):
         """Admin aprueba registro pendiente."""
         user = self.get_object()
         user.approve()
